@@ -1,13 +1,24 @@
 import os
+import sys
 import threading
 import tempfile
+import traceback
 import customtkinter as ctk
 from tkinter import filedialog
 import numpy as np
+
+# --- WINDOWED MODE CRASH FIX ---
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+# -------------------------------
+
 from moviepy.editor import VideoFileClip, CompositeVideoClip, ColorClip, CompositeAudioClip
 from moviepy.audio.io.AudioFileClip import AudioFileClip
-from moviepy.audio.AudioClip import AudioClip
+from moviepy.audio.AudioClip import AudioClip, AudioArrayClip
 import moviepy.video.fx.all as vfx
+import moviepy.audio.fx.all as afx 
 import cv2
 import noisereduce as nr
 from scipy.io import wavfile
@@ -34,9 +45,9 @@ class LiveVideoLogger(ProgressBarLogger):
 class UltimateBulkEditor(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Sahir's Ultimate Bulk Editor")
-        self.geometry("820x750") # Default size thora chota kiya taake har screen par fit aaye
-        self.minsize(720, 700)   
+        self.title("Sahir's Ultimate Bulk Editor (Premium Visuals)")
+        self.geometry("820x800") 
+        self.minsize(720, 750)   
         
         self.input_files = [] 
         self.output_folder = ""
@@ -59,9 +70,9 @@ class UltimateBulkEditor(ctk.CTk):
         self.folder_status_label = ctk.CTkLabel(self, text="Videos aur Output folder select karein...", text_color="gray")
         self.folder_status_label.pack(pady=5)
 
-        # --- DASHBOARD CONTROLS (AB YEH SCROLLABLE HAI) ---
+        # --- DASHBOARD CONTROLS (SCROLLABLE) ---
         self.frame_controls = ctk.CTkScrollableFrame(self)
-        self.frame_controls.pack(pady=5, padx=20, fill="both", expand=True) # expand=True se yeh baaqi bachi hui jagah le lega
+        self.frame_controls.pack(pady=5, padx=20, fill="both", expand=True)
         
         self.ratio_label = ctk.CTkLabel(self.frame_controls, text="Aspect Ratio:")
         self.ratio_label.grid(row=0, column=0, padx=15, pady=(10,0), sticky="w")
@@ -70,7 +81,9 @@ class UltimateBulkEditor(ctk.CTk):
 
         self.bg_label = ctk.CTkLabel(self.frame_controls, text="Background Fill:")
         self.bg_label.grid(row=0, column=1, padx=15, pady=(10,0), sticky="w")
-        self.bg_menu = ctk.CTkOptionMenu(self.frame_controls, values=["Blur Video", "Black", "White", "Dark Gray"])
+        
+        # --- NAYA OPTION: Half Fit (Blur Background) add kar diya hai ---
+        self.bg_menu = ctk.CTkOptionMenu(self.frame_controls, values=["Blur Video", "Half Fit (Blur Background)", "Zoom to Fit (Fill Frame)", "Black", "White", "Dark Gray"])
         self.bg_menu.grid(row=1, column=1, padx=15, pady=5, sticky="ew")
 
         self.res_label = ctk.CTkLabel(self.frame_controls, text="Output Resolution:")
@@ -89,48 +102,52 @@ class UltimateBulkEditor(ctk.CTk):
         self.batch_menu.set("3")
         self.batch_menu.grid(row=5, column=0, padx=15, pady=5, sticky="ew")
 
+        self.engine_label = ctk.CTkLabel(self.frame_controls, text="Render Engine (Speed):")
+        self.engine_label.grid(row=4, column=1, padx=15, pady=(10,0), sticky="w")
+        self.engine_menu = ctk.CTkOptionMenu(self.frame_controls, values=["CPU (Standard)", "GPU (Nvidia Fast)"])
+        self.engine_menu.set("CPU (Standard)")
+        self.engine_menu.grid(row=5, column=1, padx=15, pady=5, sticky="ew")
+
         self.color_label = ctk.CTkLabel(self.frame_controls, text="Progress Bar Color:")
-        self.color_label.grid(row=4, column=1, padx=15, pady=(10,0), sticky="w")
+        self.color_label.grid(row=6, column=0, padx=15, pady=(10,0), sticky="w")
         self.color_menu = ctk.CTkOptionMenu(self.frame_controls, values=["Red", "Green", "Blue", "Yellow", "Cyan", "Magenta", "White"])
         self.color_menu.set("Red")
-        self.color_menu.grid(row=5, column=1, padx=15, pady=5, sticky="ew")
+        self.color_menu.grid(row=7, column=0, padx=15, pady=5, sticky="ew")
 
-        # Visual Hacks
         self.flip_var = ctk.BooleanVar(value=True)
         self.check_flip = ctk.CTkSwitch(self.frame_controls, text="Flip Horizontally", variable=self.flip_var)
-        self.check_flip.grid(row=6, column=0, padx=15, pady=(15,5), sticky="w")
+        self.check_flip.grid(row=6, column=1, padx=15, pady=(15,5), sticky="w")
 
         self.anti_copy_var = ctk.BooleanVar(value=True) 
-        self.check_anti_copy = ctk.CTkSwitch(self.frame_controls, text="Anti-Copyright Visuals (Invisible Layers)", variable=self.anti_copy_var)
-        self.check_anti_copy.grid(row=6, column=1, padx=15, pady=(15,5), sticky="w")
+        self.check_anti_copy = ctk.CTkSwitch(self.frame_controls, text="Anti-Copyright Visuals", variable=self.anti_copy_var)
+        self.check_anti_copy.grid(row=7, column=1, padx=15, pady=(5,5), sticky="w")
 
-        # --- AUDIO HACKER ---
         self.audio_lbl = ctk.CTkLabel(self.frame_controls, text="🎧 Audio Hacker (Bypass):", font=("Helvetica", 14, "bold"))
-        self.audio_lbl.grid(row=7, column=0, padx=15, pady=(15,0), sticky="w")
+        self.audio_lbl.grid(row=8, column=0, padx=15, pady=(15,0), sticky="w")
 
         self.mask_noise_var = ctk.BooleanVar(value=True)
         self.check_mask = ctk.CTkSwitch(self.frame_controls, text="Add White Noise Mask (2%)", variable=self.mask_noise_var)
-        self.check_mask.grid(row=8, column=0, padx=15, pady=(5,5), sticky="w")
+        self.check_mask.grid(row=9, column=0, padx=15, pady=(5,5), sticky="w")
 
         self.reverb_var = ctk.BooleanVar(value=False)
         self.check_reverb = ctk.CTkSwitch(self.frame_controls, text="Add Reverb / Echo", variable=self.reverb_var)
-        self.check_reverb.grid(row=8, column=1, padx=15, pady=(5,5), sticky="w")
+        self.check_reverb.grid(row=9, column=1, padx=15, pady=(5,5), sticky="w")
 
         self.clean_audio_var = ctk.BooleanVar(value=False)
         self.check_audio = ctk.CTkSwitch(self.frame_controls, text="Clean Audio (Noise Reducer)", variable=self.clean_audio_var)
-        self.check_audio.grid(row=9, column=0, padx=15, pady=(5,5), sticky="w")
+        self.check_audio.grid(row=10, column=0, padx=15, pady=(5,5), sticky="w")
 
         self.speed_label = ctk.CTkLabel(self.frame_controls, text="Speed: 1.15x")
-        self.speed_label.grid(row=9, column=1, padx=15, pady=(5,0), sticky="w")
+        self.speed_label.grid(row=10, column=1, padx=15, pady=(5,0), sticky="w")
 
         self.slider_speed = ctk.CTkSlider(self.frame_controls, from_=0.5, to=2.0, command=self.update_speed_label)
         self.slider_speed.set(1.15)
-        self.slider_speed.grid(row=10, column=1, padx=15, pady=(0,15), sticky="ew")
+        self.slider_speed.grid(row=11, column=1, padx=15, pady=(0,15), sticky="ew")
 
         self.frame_controls.grid_columnconfigure(0, weight=1)
         self.frame_controls.grid_columnconfigure(1, weight=1)
 
-        # --- ACTION BAR (LOCK AT BOTTOM) ---
+        # --- ACTION BAR (FIXED AT BOTTOM) ---
         self.frame_action = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_action.pack(pady=(10, 5), padx=20, fill="x")
 
@@ -140,14 +157,14 @@ class UltimateBulkEditor(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.frame_action, text="Ready to start!", font=("Helvetica", 14), text_color="gray", anchor="w")
         self.status_label.pack(side="left", fill="x", expand=True)
 
-        # --- SCROLLABLE PROGRESS (FIXED HEIGHT) ---
-        self.progress_frame = ctk.CTkScrollableFrame(self, height=130) # Iski height fix kar di taake choti screens par bhi nazar aaye
-        self.progress_frame.pack(fill="x", padx=20, pady=(0, 20)) # Isme se expand=True hata diya
+        # --- SCROLLABLE PROGRESS ---
+        self.progress_frame = ctk.CTkScrollableFrame(self, height=130)
+        self.progress_frame.pack(fill="x", padx=20, pady=(0, 20))
 
     def create_ui_bar(self, filename):
         frame = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
         frame.pack(fill="x", pady=2)
-        display_name = (filename[:25] + '..') if len(filename) > 25 else filename
+        display_name = (filename[:20] + '..') if len(filename) > 20 else filename
         lbl = ctk.CTkLabel(frame, text=f"{display_name} - 0%", font=("Helvetica", 12), width=150, anchor="w")
         lbl.pack(side="left", padx=5)
         bar = ctk.CTkProgressBar(frame)
@@ -166,7 +183,8 @@ class UltimateBulkEditor(ctk.CTk):
                 self.active_bars[filename]["bar"].set(1.0)
                 self.active_bars[filename]["label"].configure(text=f"✅ {filename[:20]}", text_color="#28a745")
             else:
-                self.active_bars[filename]["label"].configure(text=f"❌ ERROR: {filename[:15]}", text_color="#dc3545")
+                short_err = error_msg[:25] + "..." if len(error_msg) > 25 else error_msg
+                self.active_bars[filename]["label"].configure(text=f"❌ {short_err}", text_color="#dc3545")
 
     def update_speed_label(self, value):
         self.speed_label.configure(text=f"Speed: {round(value, 2)}x")
@@ -186,13 +204,9 @@ class UltimateBulkEditor(ctk.CTk):
     def get_resolution_dims(self, res_name, ratio_name, orig_w, orig_h):
         dims = {"720p": (1280, 720), "1080p": (1920, 1080), "2K": (2560, 1440), "4K": (3840, 2160)}
         w, h = dims[res_name] if res_name != "Original" else (orig_w, orig_h)
-        if ratio_name == "9:16 (Shorts/Reels)": 
-            return min(w, h), max(w, h) 
-        elif ratio_name == "16:9 (YouTube)": 
-            return max(w, h), min(w, h) 
-        elif ratio_name == "1:1 (Square)": 
-            size = min(w, h)
-            return size, size
+        if ratio_name == "9:16 (Shorts/Reels)": return min(w, h), max(w, h) 
+        elif ratio_name == "16:9 (YouTube)": return max(w, h), min(w, h) 
+        elif ratio_name == "1:1 (Square)": size = min(w, h); return size, size
         return w, h
 
     def make_even(self, num):
@@ -214,26 +228,48 @@ class UltimateBulkEditor(ctk.CTk):
             target_w = self.make_even(raw_target_w)
             target_h = self.make_even(raw_target_h)
             
+            # INNER BOX: Jahan main video nazar aayegi (Is se bahar 10px ka border hamesha rahega)
             inner_w = self.make_even(target_w - (2 * params['border_size']))
             inner_h = self.make_even(target_h - (2 * params['border_size']))
             
-            main_clip = clip.resize(width=inner_w) if (clip.w / clip.h) > (inner_w / inner_h) else clip.resize(height=inner_h)
-            
-            # --- 1. BACKGROUND LAYER ---
-            if params['bg_val'] == "Blur Video":
+            # --- 1. ALWAYS CREATE BACKGROUND (For Border Visibility) ---
+            bg_type = params['bg_val']
+            if bg_type in ["Blur Video", "Zoom to Fit (Fill Frame)", "Half Fit (Blur Background)"]:
                 def blur_frame(frame):
-                    safe_frame = np.zeros((frame.shape[0], frame.shape[1], 3), dtype=np.uint8)
-                    if frame.shape[2] == 4: safe_frame[:,:,:] = frame[:,:,:3]
-                    else: safe_frame[:,:,:] = frame
-                    return cv2.GaussianBlur(safe_frame, (99, 99), 0)
+                    safe_frame = frame[:,:,:3] if frame.shape[2] == 4 else frame
+                    small = cv2.resize(safe_frame, (0,0), fx=0.5, fy=0.5)
+                    blurred_small = cv2.GaussianBlur(small, (51, 51), 0)
+                    return cv2.resize(blurred_small, (safe_frame.shape[1], safe_frame.shape[0]))
+                
                 bg_clip = clip.resize(newsize=(target_w, target_h)).fl_image(blur_frame)
             else:
                 colors = {"Black": (0,0,0), "White": (255,255,255), "Dark Gray": (50,50,50)}
-                bg_clip = ColorClip(size=(target_w, target_h), color=colors.get(params['bg_val'], (0,0,0)), duration=clip.duration)
+                bg_clip = ColorClip(size=(target_w, target_h), color=colors.get(bg_type, (0,0,0)), duration=clip.duration)
 
             bg_clip = bg_clip.set_fps(original_fps)
 
-            # --- 2. ANTI-COPYRIGHT BASE LAYER ---
+            # --- 2. MAIN CLIP RESIZE LOGIC (The Magic Area) ---
+            if bg_type == "Zoom to Fit (Fill Frame)":
+                # Video ko center se zoom karega par 'inner' border ko cross nahi karega!
+                box_w, box_h = inner_w, inner_h
+                scale = max(box_w / clip.w, box_h / clip.h)
+                resized_clip = clip.resize(scale)
+                main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=box_w, height=box_h)
+                
+            elif bg_type == "Half Fit (Blur Background)":
+                # Video center me fit hogi, upar 20% aur neechay 20% blur area chhor degi (Total 60% height cover karegi)
+                box_w = inner_w
+                box_h = self.make_even(inner_h * 0.60)
+                scale = max(box_w / clip.w, box_h / clip.h)
+                resized_clip = clip.resize(scale)
+                main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=box_w, height=box_h)
+                
+            else:
+                # Normal standard fit (bina kati phati video)
+                scale = min(inner_w / clip.w, inner_h / clip.h)
+                main_clip = clip.resize(scale)
+
+            # --- 3. COMBINING LAYERS ---
             layers_to_composite = []
             if params['anti_copy']:
                 base_white = ColorClip(size=(target_w, target_h), color=(255, 255, 255), duration=clip.duration)
@@ -245,24 +281,23 @@ class UltimateBulkEditor(ctk.CTk):
             
             final_clip = CompositeVideoClip(layers_to_composite)
 
-            # --- 3. EFFECTS ---
+            # --- 4. EFFECTS ---
             if params['do_flip']: final_clip = final_clip.fx(vfx.mirror_x)
             if params['speed_val'] != 1.0: final_clip = final_clip.fx(vfx.speedx, params['speed_val'])
             if params['filter_val'] == "Color Boost (1.2x)": final_clip = final_clip.fx(vfx.colorx, 1.2)
             elif params['filter_val'] == "Black & White": final_clip = final_clip.fx(vfx.blackwhite)
             elif params['filter_val'] == "Slight Zoom": final_clip = final_clip.fx(vfx.crop, x_center=final_clip.w/2, y_center=final_clip.h/2, width=final_clip.w*0.9, height=final_clip.h*0.9).resize(width=final_clip.w)
 
-            # --- 4. ANTI-COPYRIGHT TOP LAYER ---
+            # --- 5. ANTI-COPYRIGHT TOP LAYER ---
             if params['anti_copy']:
                 top_invisible_layer = ColorClip(size=(target_w, target_h), color=(255, 255, 255), duration=final_clip.duration).set_opacity(0.01)
                 top_invisible_layer = top_invisible_layer.set_fps(original_fps)
                 final_clip = CompositeVideoClip([final_clip, top_invisible_layer])
 
-            # --- 5. AUDIO HACKER (MASKING, REVERB & CLEANING) ---
+            # --- 6. AUDIO HACKER ---
             if final_clip.audio is not None:
                 audio_layers = [final_clip.audio]
                 
-                # A) Clean Audio (Noise Reduction)
                 if params['clean_audio']:
                     try:
                         temp_dir = tempfile.gettempdir()
@@ -279,36 +314,32 @@ class UltimateBulkEditor(ctk.CTk):
                     except Exception as audio_err:
                         pass
 
-                # B) Add White Noise Mask (2% volume)
                 if params['mask_noise']:
-                    def make_noise(t):
-                        return np.random.uniform(-0.02, 0.02, (len(t), 2))
-                    noise_clip = AudioClip(make_noise, duration=final_clip.duration, fps=44100)
+                    total_samples = int(44100 * final_clip.duration)
+                    noise_array = np.random.uniform(-0.02, 0.02, (total_samples, 2))
+                    noise_clip = AudioArrayClip(noise_array, fps=44100)
                     audio_layers.append(noise_clip)
 
-                # C) Add Reverb / Echo (0.05s delay at 30% volume)
                 if params['reverb']:
-                    echo_clip = audio_layers[0].set_start(0.05).volumex(0.3)
+                    echo_clip = audio_layers[0].set_start(0.05).fx(afx.volumex, 0.3)
                     audio_layers.append(echo_clip)
 
-                # Combine all audio layers
                 if len(audio_layers) > 1:
                     final_audio = CompositeAudioClip(audio_layers)
                     final_audio = final_audio.set_duration(final_clip.duration)
+                    final_audio.fps = 44100 
                     final_clip = final_clip.set_audio(final_audio)
                 elif new_audio_clip:
                     final_clip = final_clip.set_audio(new_audio_clip)
 
-            # --- 6. 4-SIDED PROGRESS BAR ---
+            # --- 7. 4-SIDED PROGRESS BAR ---
             duration = final_clip.duration
             b_size = params['border_size']
             prog_color = params['prog_color']
             
             def add_4sided_progress(get_frame, t):
                 orig_frame = get_frame(t)
-                safe_frame = np.zeros((orig_frame.shape[0], orig_frame.shape[1], 3), dtype=np.uint8)
-                if orig_frame.shape[2] == 4: safe_frame[:,:,:] = orig_frame[:,:,:3]
-                else: safe_frame[:,:,:] = orig_frame
+                safe_frame = orig_frame[:, :, :3].copy() if orig_frame.shape[2] == 4 else orig_frame.copy()
                 
                 h, w, _ = safe_frame.shape
                 total_perimeter = 2 * w + 2 * h
@@ -335,14 +366,17 @@ class UltimateBulkEditor(ctk.CTk):
 
             custom_logger = LiveVideoLogger(filename, ui_update_callback)
 
-            # --- 7. FINAL RENDER ---
+            selected_codec = "libx264"
+            if params['engine'] == "GPU (Nvidia Fast)":
+                selected_codec = "h264_nvenc" 
+
             final_clip.write_videofile(
                 output_path, 
                 fps=original_fps,   
-                codec="libx264", 
+                codec=selected_codec, 
                 audio_codec="aac", 
-                bitrate="8000k", 
-                preset="medium", 
+                bitrate="4000k",      
+                preset="ultrafast",   
                 threads=4,          
                 logger=custom_logger 
             )
@@ -357,6 +391,13 @@ class UltimateBulkEditor(ctk.CTk):
             return True, filename
             
         except Exception as e:
+            error_details = traceback.format_exc()
+            try:
+                with open("error_log.txt", "a", encoding="utf-8") as f:
+                    f.write(f"--- ERROR IN {filename} ---\n{error_details}\n\n")
+            except:
+                pass
+            
             self.after(0, self.complete_ui_bar, filename, False, str(e))
             return False, f"{filename}: {str(e)}"
             
@@ -395,7 +436,8 @@ class UltimateBulkEditor(ctk.CTk):
             'clean_audio': self.clean_audio_var.get(),
             'anti_copy': self.anti_copy_var.get(), 
             'mask_noise': self.mask_noise_var.get(),
-            'reverb': self.reverb_var.get(),         
+            'reverb': self.reverb_var.get(),
+            'engine': self.engine_menu.get(), 
             'border_size': 10
         }
         
