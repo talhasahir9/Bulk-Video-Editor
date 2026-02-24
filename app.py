@@ -187,6 +187,10 @@ class UltimateBulkEditor(ctk.CTk):
             output_path = os.path.join(self.output_folder, f"edited_{filename}")
             
             clip = VideoFileClip(input_path)
+            
+            # --- YAHAN FPS EXTRACT HO RAHA HAI ---
+            original_fps = clip.fps if clip.fps else 30
+            
             target_w, target_h = self.get_resolution_dims(params['res_val'], params['ratio_val'], clip.w, clip.h)
             
             inner_w = target_w - (2 * params['border_size'])
@@ -212,30 +216,22 @@ class UltimateBulkEditor(ctk.CTk):
             elif params['filter_val'] == "Black & White": final_clip = final_clip.fx(vfx.blackwhite)
             elif params['filter_val'] == "Slight Zoom": final_clip = final_clip.fx(vfx.crop, x_center=final_clip.w/2, y_center=final_clip.h/2, width=final_clip.w*0.9, height=final_clip.h*0.9).resize(width=final_clip.w)
 
-            # --- OPTIONAL: FAST AUDIO NOISE REDUCTION ---
+            # Audio Processing
             if params['clean_audio'] and final_clip.audio is not None:
                 try:
                     temp_dir = tempfile.gettempdir()
                     temp_wav_path = os.path.join(temp_dir, f"temp_{filename}.wav")
                     clean_wav_path = os.path.join(temp_dir, f"clean_{filename}.wav")
                     
-                    # 1. Extract audio to temporary file
                     final_clip.audio.write_audiofile(temp_wav_path, fps=44100, logger=None)
-                    
-                    # 2. Read with scipy
                     rate, data = wavfile.read(temp_wav_path)
-                    
-                    # 3. Apply Noise Reduction (Transpose lazmi hai scipy shape ke liye)
                     reduced_data = nr.reduce_noise(y=data.T, sr=rate)
-                    
-                    # 4. Save cleaned audio
                     wavfile.write(clean_wav_path, rate, reduced_data.T)
                     
-                    # 5. Attach new audio to video
                     new_audio_clip = AudioFileClip(clean_wav_path)
                     final_clip = final_clip.set_audio(new_audio_clip)
                 except Exception as audio_err:
-                    print(f"Audio cleaning failed for {filename}, using original audio. Error: {audio_err}")
+                    print(f"Audio cleaning failed for {filename}, using original. Error: {audio_err}")
 
             duration = final_clip.duration
             b_size = params['border_size']
@@ -272,16 +268,18 @@ class UltimateBulkEditor(ctk.CTk):
 
             custom_logger = LiveVideoLogger(filename, ui_update_callback)
 
+            # --- YAHAN FPS AUR THREADS KA FIX APPLY KIYA HAI ---
             final_clip.write_videofile(
                 output_path, 
+                fps=original_fps,   # <--- Original frame rate use karega
                 codec="libx264", 
                 audio_codec="aac", 
                 bitrate="8000k", 
                 preset="medium", 
+                threads=4,          # <--- Rendering stable aur smooth banayega
                 logger=custom_logger 
             )
             
-            # Sub clips close karein taake memory leak na ho
             clip.close(); main_clip.close(); bg_clip.close(); final_clip.close()
             if new_audio_clip: new_audio_clip.close()
             
@@ -293,7 +291,6 @@ class UltimateBulkEditor(ctk.CTk):
             return False, f"{filename}: {str(e)}"
             
         finally:
-            # Safai (Cleanup) - Temporary audio files ko delete karna lazmi hai
             if temp_wav_path and os.path.exists(temp_wav_path):
                 try: os.remove(temp_wav_path)
                 except: pass
@@ -325,7 +322,7 @@ class UltimateBulkEditor(ctk.CTk):
             'ratio_val': self.ratio_menu.get(), 'bg_val': self.bg_menu.get(),
             'res_val': self.res_menu.get(), 'filter_val': self.filter_menu.get(),
             'prog_color': color_map.get(self.color_menu.get(), (0, 0, 255)),
-            'clean_audio': self.clean_audio_var.get(), # <-- Toggle idhar se value uthayega
+            'clean_audio': self.clean_audio_var.get(),
             'border_size': 10
         }
         
