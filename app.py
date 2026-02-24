@@ -34,8 +34,8 @@ class UltimateBulkEditor(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Sahir's Ultimate Bulk Editor")
-        self.geometry("800x820") 
-        self.minsize(700, 750)   
+        self.geometry("820x860") # Thora lamba kiya taake naya toggle fit aa jaye
+        self.minsize(720, 780)   
         
         self.input_files = [] 
         self.output_folder = ""
@@ -100,18 +100,24 @@ class UltimateBulkEditor(ctk.CTk):
         # Row 4: Toggles (Flip & Audio)
         self.flip_var = ctk.BooleanVar(value=True)
         self.check_flip = ctk.CTkSwitch(self.frame_controls, text="Flip Horizontally", variable=self.flip_var)
-        self.check_flip.grid(row=6, column=0, padx=15, pady=(20,5), sticky="w")
+        self.check_flip.grid(row=6, column=0, padx=15, pady=(15,5), sticky="w")
 
         self.clean_audio_var = ctk.BooleanVar(value=False)
         self.check_audio = ctk.CTkSwitch(self.frame_controls, text="Clean Audio (Remove Noise)", variable=self.clean_audio_var)
-        self.check_audio.grid(row=6, column=1, padx=15, pady=(20,5), sticky="w")
+        self.check_audio.grid(row=6, column=1, padx=15, pady=(15,5), sticky="w")
 
-        # Row 5: Speed Slider
+        # Row 5: Anti-Copyright Toggle & Speed Label
+        self.anti_copy_var = ctk.BooleanVar(value=True) # Default ON rakha hai
+        self.check_anti_copy = ctk.CTkSwitch(self.frame_controls, text="Anti-Copyright (Invisible Layers)", variable=self.anti_copy_var)
+        self.check_anti_copy.grid(row=7, column=0, padx=15, pady=(5,5), sticky="w")
+
         self.speed_label = ctk.CTkLabel(self.frame_controls, text="Speed: 1.15x")
-        self.speed_label.grid(row=7, column=0, padx=15, pady=(10,0), sticky="w")
+        self.speed_label.grid(row=7, column=1, padx=15, pady=(5,0), sticky="w")
+
+        # Row 6: Speed Slider
         self.slider_speed = ctk.CTkSlider(self.frame_controls, from_=0.5, to=2.0, command=self.update_speed_label)
         self.slider_speed.set(1.15)
-        self.slider_speed.grid(row=8, column=0, columnspan=2, padx=15, pady=(0,15), sticky="ew")
+        self.slider_speed.grid(row=8, column=1, padx=15, pady=(0,15), sticky="ew")
 
         self.frame_controls.grid_columnconfigure(0, weight=1)
         self.frame_controls.grid_columnconfigure(1, weight=1)
@@ -187,8 +193,6 @@ class UltimateBulkEditor(ctk.CTk):
             output_path = os.path.join(self.output_folder, f"edited_{filename}")
             
             clip = VideoFileClip(input_path)
-            
-            # --- YAHAN FPS EXTRACT HO RAHA HAI ---
             original_fps = clip.fps if clip.fps else 30
             
             target_w, target_h = self.get_resolution_dims(params['res_val'], params['ratio_val'], clip.w, clip.h)
@@ -197,6 +201,7 @@ class UltimateBulkEditor(ctk.CTk):
             inner_h = target_h - (2 * params['border_size'])
             main_clip = clip.resize(width=inner_w) if (clip.w / clip.h) > (inner_w / inner_h) else clip.resize(height=inner_h)
             
+            # --- 1. BACKGROUND CREATION ---
             if params['bg_val'] == "Blur Video":
                 def blur_frame(frame):
                     safe_frame = np.zeros((frame.shape[0], frame.shape[1], 3), dtype=np.uint8)
@@ -208,15 +213,34 @@ class UltimateBulkEditor(ctk.CTk):
                 colors = {"Black": (0,0,0), "White": (255,255,255), "Dark Gray": (50,50,50)}
                 bg_clip = ColorClip(size=(target_w, target_h), color=colors.get(params['bg_val'], (0,0,0)), duration=clip.duration)
 
-            final_clip = CompositeVideoClip([bg_clip, main_clip.set_position("center")])
+            # --- 2. ANTI-COPYRIGHT BASE LAYER (Optional) ---
+            layers_to_composite = []
+            
+            if params['anti_copy']:
+                # Sab se neechay pure white base layer
+                base_white = ColorClip(size=(target_w, target_h), color=(255, 255, 255), duration=clip.duration)
+                layers_to_composite.append(base_white)
+            
+            # Background aur Main Clip add karna
+            layers_to_composite.append(bg_clip)
+            layers_to_composite.append(main_clip.set_position("center"))
+            
+            # Combine basic layers
+            final_clip = CompositeVideoClip(layers_to_composite)
 
+            # --- 3. EFFECTS & FILTERS ---
             if params['do_flip']: final_clip = final_clip.fx(vfx.mirror_x)
             if params['speed_val'] != 1.0: final_clip = final_clip.fx(vfx.speedx, params['speed_val'])
             if params['filter_val'] == "Color Boost (1.2x)": final_clip = final_clip.fx(vfx.colorx, 1.2)
             elif params['filter_val'] == "Black & White": final_clip = final_clip.fx(vfx.blackwhite)
             elif params['filter_val'] == "Slight Zoom": final_clip = final_clip.fx(vfx.crop, x_center=final_clip.w/2, y_center=final_clip.h/2, width=final_clip.w*0.9, height=final_clip.h*0.9).resize(width=final_clip.w)
 
-            # Audio Processing
+            # --- 4. ANTI-COPYRIGHT TOP LAYER (Invisible 1%) ---
+            if params['anti_copy']:
+                top_invisible_layer = ColorClip(size=(target_w, target_h), color=(255, 255, 255), duration=final_clip.duration).set_opacity(0.01)
+                final_clip = CompositeVideoClip([final_clip, top_invisible_layer])
+
+            # --- 5. AUDIO PROCESSING ---
             if params['clean_audio'] and final_clip.audio is not None:
                 try:
                     temp_dir = tempfile.gettempdir()
@@ -233,6 +257,7 @@ class UltimateBulkEditor(ctk.CTk):
                 except Exception as audio_err:
                     print(f"Audio cleaning failed for {filename}, using original. Error: {audio_err}")
 
+            # --- 6. 4-SIDED PROGRESS BAR ---
             duration = final_clip.duration
             b_size = params['border_size']
             prog_color = params['prog_color']
@@ -268,19 +293,22 @@ class UltimateBulkEditor(ctk.CTk):
 
             custom_logger = LiveVideoLogger(filename, ui_update_callback)
 
-            # --- YAHAN FPS AUR THREADS KA FIX APPLY KIYA HAI ---
+            # --- 7. FINAL RENDER ---
             final_clip.write_videofile(
                 output_path, 
-                fps=original_fps,   # <--- Original frame rate use karega
+                fps=original_fps,   
                 codec="libx264", 
                 audio_codec="aac", 
                 bitrate="8000k", 
                 preset="medium", 
-                threads=4,          # <--- Rendering stable aur smooth banayega
+                threads=4,          
                 logger=custom_logger 
             )
             
             clip.close(); main_clip.close(); bg_clip.close(); final_clip.close()
+            if params['anti_copy']: 
+                base_white.close()
+                top_invisible_layer.close()
             if new_audio_clip: new_audio_clip.close()
             
             self.after(0, self.complete_ui_bar, filename, True)
@@ -312,7 +340,7 @@ class UltimateBulkEditor(ctk.CTk):
         total_videos = len(self.input_files) 
         
         color_map = {
-            "Red": (0, 0, 255), "Green": (0, 255, 0), "Blue": (255, 0, 0),
+            "Red": (255, 0, 0), "Green": (0, 255, 0), "Blue": (0, 0, 225),
             "Yellow": (0, 255, 255), "Cyan": (255, 255, 0), 
             "Magenta": (255, 0, 255), "White": (255, 255, 255)
         }
@@ -323,6 +351,7 @@ class UltimateBulkEditor(ctk.CTk):
             'res_val': self.res_menu.get(), 'filter_val': self.filter_menu.get(),
             'prog_color': color_map.get(self.color_menu.get(), (0, 0, 255)),
             'clean_audio': self.clean_audio_var.get(),
+            'anti_copy': self.anti_copy_var.get(), # <-- Naya Anti-Copy feature
             'border_size': 10
         }
         
