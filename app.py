@@ -35,8 +35,8 @@ class UltimateBulkEditor(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Sahir's Ultimate Bulk Editor")
-        self.geometry("820x900") # UI height thori barhai hai Audio Hacker ke liye
-        self.minsize(720, 800)   
+        self.geometry("820x750") # Default size thora chota kiya taake har screen par fit aaye
+        self.minsize(720, 700)   
         
         self.input_files = [] 
         self.output_folder = ""
@@ -59,9 +59,9 @@ class UltimateBulkEditor(ctk.CTk):
         self.folder_status_label = ctk.CTkLabel(self, text="Videos aur Output folder select karein...", text_color="gray")
         self.folder_status_label.pack(pady=5)
 
-        # --- DASHBOARD CONTROLS ---
-        self.frame_controls = ctk.CTkFrame(self)
-        self.frame_controls.pack(pady=5, padx=20, fill="x") 
+        # --- DASHBOARD CONTROLS (AB YEH SCROLLABLE HAI) ---
+        self.frame_controls = ctk.CTkScrollableFrame(self)
+        self.frame_controls.pack(pady=5, padx=20, fill="both", expand=True) # expand=True se yeh baaqi bachi hui jagah le lega
         
         self.ratio_label = ctk.CTkLabel(self.frame_controls, text="Aspect Ratio:")
         self.ratio_label.grid(row=0, column=0, padx=15, pady=(10,0), sticky="w")
@@ -104,9 +104,9 @@ class UltimateBulkEditor(ctk.CTk):
         self.check_anti_copy = ctk.CTkSwitch(self.frame_controls, text="Anti-Copyright Visuals (Invisible Layers)", variable=self.anti_copy_var)
         self.check_anti_copy.grid(row=6, column=1, padx=15, pady=(15,5), sticky="w")
 
-        # --- NAYA SECTION: AUDIO HACKER ---
+        # --- AUDIO HACKER ---
         self.audio_lbl = ctk.CTkLabel(self.frame_controls, text="🎧 Audio Hacker (Bypass):", font=("Helvetica", 14, "bold"))
-        self.audio_lbl.grid(row=7, column=0, padx=15, pady=(10,0), sticky="w")
+        self.audio_lbl.grid(row=7, column=0, padx=15, pady=(15,0), sticky="w")
 
         self.mask_noise_var = ctk.BooleanVar(value=True)
         self.check_mask = ctk.CTkSwitch(self.frame_controls, text="Add White Noise Mask (2%)", variable=self.mask_noise_var)
@@ -130,9 +130,9 @@ class UltimateBulkEditor(ctk.CTk):
         self.frame_controls.grid_columnconfigure(0, weight=1)
         self.frame_controls.grid_columnconfigure(1, weight=1)
 
-        # --- ACTION BAR ---
+        # --- ACTION BAR (LOCK AT BOTTOM) ---
         self.frame_action = ctk.CTkFrame(self, fg_color="transparent")
-        self.frame_action.pack(pady=(5, 5), padx=20, fill="x")
+        self.frame_action.pack(pady=(10, 5), padx=20, fill="x")
 
         self.btn_start = ctk.CTkButton(self.frame_action, text="▶ Start Processing", font=("Helvetica", 16, "bold"), fg_color="#28a745", hover_color="#218838", height=40, command=self.start_processing)
         self.btn_start.pack(side="left", padx=(0, 15))
@@ -140,9 +140,9 @@ class UltimateBulkEditor(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.frame_action, text="Ready to start!", font=("Helvetica", 14), text_color="gray", anchor="w")
         self.status_label.pack(side="left", fill="x", expand=True)
 
-        # --- SCROLLABLE PROGRESS ---
-        self.progress_frame = ctk.CTkScrollableFrame(self)
-        self.progress_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        # --- SCROLLABLE PROGRESS (FIXED HEIGHT) ---
+        self.progress_frame = ctk.CTkScrollableFrame(self, height=130) # Iski height fix kar di taake choti screens par bhi nazar aaye
+        self.progress_frame.pack(fill="x", padx=20, pady=(0, 20)) # Isme se expand=True hata diya
 
     def create_ui_bar(self, filename):
         frame = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
@@ -275,15 +275,13 @@ class UltimateBulkEditor(ctk.CTk):
                         wavfile.write(clean_wav_path, rate, reduced_data.T)
                         
                         new_audio_clip = AudioFileClip(clean_wav_path)
-                        audio_layers = [new_audio_clip] # Replace original with clean
+                        audio_layers = [new_audio_clip] 
                     except Exception as audio_err:
-                        print(f"Audio cleaning failed for {filename}. Error: {audio_err}")
+                        pass
 
                 # B) Add White Noise Mask (2% volume)
                 if params['mask_noise']:
-                    # Generate dynamic white noise array
                     def make_noise(t):
-                        # Returns array of shape (len(t), 2) for stereo noise
                         return np.random.uniform(-0.02, 0.02, (len(t), 2))
                     noise_clip = AudioClip(make_noise, duration=final_clip.duration, fps=44100)
                     audio_layers.append(noise_clip)
@@ -337,7 +335,7 @@ class UltimateBulkEditor(ctk.CTk):
 
             custom_logger = LiveVideoLogger(filename, ui_update_callback)
 
-            # --- 7. FINAL SMOOTH RENDER ---
+            # --- 7. FINAL RENDER ---
             final_clip.write_videofile(
                 output_path, 
                 fps=original_fps,   
@@ -396,8 +394,8 @@ class UltimateBulkEditor(ctk.CTk):
             'prog_color': color_map.get(self.color_menu.get(), (0, 0, 255)),
             'clean_audio': self.clean_audio_var.get(),
             'anti_copy': self.anti_copy_var.get(), 
-            'mask_noise': self.mask_noise_var.get(), # <-- Audio Noise Mask
-            'reverb': self.reverb_var.get(),         # <-- Audio Echo
+            'mask_noise': self.mask_noise_var.get(),
+            'reverb': self.reverb_var.get(),         
             'border_size': 10
         }
         
