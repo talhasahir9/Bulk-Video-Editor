@@ -8,6 +8,7 @@ import customtkinter as ctk
 from tkinter import filedialog
 from PIL import Image, ImageTk
 import numpy as np
+import uuid 
 
 # --- WINDOWED MODE CRASH FIX ---
 if sys.stdout is None:
@@ -16,7 +17,7 @@ if sys.stderr is None:
     sys.stderr = open(os.devnull, "w")
 # -------------------------------
 
-from moviepy.editor import VideoFileClip, CompositeVideoClip, ColorClip, CompositeAudioClip
+from moviepy.editor import VideoFileClip, CompositeVideoClip, ColorClip, CompositeAudioClip, ImageClip
 from moviepy.audio.io.AudioFileClip import AudioFileClip
 from moviepy.audio.AudioClip import AudioClip, AudioArrayClip
 import moviepy.video.fx.all as vfx
@@ -47,9 +48,9 @@ class LiveVideoLogger(ProgressBarLogger):
 class UltimateBulkEditor(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Sahir's Ultimate Bulk Editor (Pro Mode)")
-        self.geometry("820x850") 
-        self.minsize(720, 780)   
+        self.title("Sahir's Ultimate Bulk Editor (Level 100 Bypass)")
+        self.geometry("820x860") 
+        self.minsize(720, 800)   
         
         self.input_files = [] 
         self.output_folder = ""
@@ -119,41 +120,54 @@ class UltimateBulkEditor(ctk.CTk):
         self.check_flip = ctk.CTkSwitch(self.frame_controls, text="Flip Horizontally", variable=self.flip_var)
         self.check_flip.grid(row=6, column=1, padx=15, pady=(15,5), sticky="w")
 
-        # --- OPTIONAL MANUAL DRAW BLUR ---
+        # --- Auto-Trim & Custom Blur ---
+        self.auto_trim_var = ctk.BooleanVar(value=True)
+        self.check_auto_trim = ctk.CTkSwitch(self.frame_controls, text="✂️ Auto-Trim (Cut 1s Start/End)", variable=self.auto_trim_var)
+        self.check_auto_trim.grid(row=8, column=0, padx=15, pady=(15,0), sticky="w")
+
         self.blur_frame_label = ctk.CTkLabel(self.frame_controls, text="🚫 Optional: Custom Caption Hider", font=("Helvetica", 12, "bold"))
-        self.blur_frame_label.grid(row=7, column=1, padx=15, pady=(10,0), sticky="w")
+        self.blur_frame_label.grid(row=7, column=1, padx=15, pady=(15,0), sticky="w")
         
         self.btn_draw_blur = ctk.CTkButton(self.frame_controls, text="✏️ Draw Custom Blur Areas", command=self.draw_custom_blur, fg_color="#ff9900", hover_color="#e68a00", text_color="black")
         self.btn_draw_blur.grid(row=8, column=1, padx=15, pady=5, sticky="ew")
         
+        # --- Audio Hacker & Blur Status ---
+        self.audio_lbl = ctk.CTkLabel(self.frame_controls, text="🎧 Audio Hacker (Bypass):", font=("Helvetica", 14, "bold"))
+        self.audio_lbl.grid(row=9, column=0, padx=15, pady=(10,0), sticky="w")
+
         self.blur_status_label = ctk.CTkLabel(self.frame_controls, text="Status: App will not blur any area", text_color="gray", font=("Helvetica", 10))
         self.blur_status_label.grid(row=9, column=1, padx=15, pady=(0,5), sticky="w")
 
-        self.anti_copy_var = ctk.BooleanVar(value=True) 
-        self.check_anti_copy = ctk.CTkSwitch(self.frame_controls, text="Anti-Copyright Visuals", variable=self.anti_copy_var)
-        self.check_anti_copy.grid(row=10, column=1, padx=15, pady=(5,5), sticky="w")
-
-        self.audio_lbl = ctk.CTkLabel(self.frame_controls, text="🎧 Audio Hacker (Bypass):", font=("Helvetica", 14, "bold"))
-        self.audio_lbl.grid(row=8, column=0, padx=15, pady=(15,0), sticky="w")
-
+        # --- Mask Noise & Anti-Copy Visuals ---
         self.mask_noise_var = ctk.BooleanVar(value=True)
         self.check_mask = ctk.CTkSwitch(self.frame_controls, text="Add White Noise Mask (2%)", variable=self.mask_noise_var)
-        self.check_mask.grid(row=9, column=0, padx=15, pady=(5,5), sticky="w")
+        self.check_mask.grid(row=10, column=0, padx=15, pady=(5,5), sticky="w")
 
+        self.anti_copy_var = ctk.BooleanVar(value=True) 
+        self.check_anti_copy = ctk.CTkSwitch(self.frame_controls, text="Anti-Copyright Visuals (White Layer)", variable=self.anti_copy_var)
+        self.check_anti_copy.grid(row=10, column=1, padx=15, pady=(5,5), sticky="w")
+
+        # --- Reverb & Invisible Grain ---
         self.reverb_var = ctk.BooleanVar(value=False)
         self.check_reverb = ctk.CTkSwitch(self.frame_controls, text="Add Reverb / Echo", variable=self.reverb_var)
-        self.check_reverb.grid(row=10, column=0, padx=15, pady=(5,5), sticky="w")
+        self.check_reverb.grid(row=11, column=0, padx=15, pady=(5,5), sticky="w")
 
+        self.film_grain_var = ctk.BooleanVar(value=True) 
+        self.check_film_grain = ctk.CTkSwitch(self.frame_controls, text="🎬 Invisible Film Grain (Hash Buster)", variable=self.film_grain_var)
+        self.check_film_grain.grid(row=11, column=1, padx=15, pady=(5,5), sticky="w")
+
+        # --- Clean Audio ---
         self.clean_audio_var = ctk.BooleanVar(value=False)
         self.check_audio = ctk.CTkSwitch(self.frame_controls, text="Clean Audio (Noise Reducer)", variable=self.clean_audio_var)
-        self.check_audio.grid(row=11, column=0, padx=15, pady=(5,5), sticky="w")
+        self.check_audio.grid(row=12, column=0, padx=15, pady=(5,5), sticky="w")
 
+        # --- SPEED SLIDER ---
         self.speed_label = ctk.CTkLabel(self.frame_controls, text="Speed: 1.15x")
-        self.speed_label.grid(row=11, column=1, padx=15, pady=(5,0), sticky="w")
+        self.speed_label.grid(row=13, column=0, padx=15, pady=(10,0), sticky="w")
 
         self.slider_speed = ctk.CTkSlider(self.frame_controls, from_=0.5, to=2.0, command=self.update_speed_label)
         self.slider_speed.set(1.15)
-        self.slider_speed.grid(row=12, column=1, padx=15, pady=(0,15), sticky="ew")
+        self.slider_speed.grid(row=14, column=0, columnspan=2, padx=15, pady=(0,15), sticky="ew")
 
         self.frame_controls.grid_columnconfigure(0, weight=1)
         self.frame_controls.grid_columnconfigure(1, weight=1)
@@ -344,6 +358,10 @@ class UltimateBulkEditor(ctk.CTk):
             output_path = os.path.join(self.output_folder, f"edited_{filename}")
             
             clip = VideoFileClip(input_path)
+            
+            if params['auto_trim'] and clip.duration > 3.0:
+                clip = clip.subclip(1.0, clip.duration - 1.0)
+                
             original_fps = clip.fps if clip.fps else 30.0
 
             if len(self.custom_blur_boxes) > 0:
@@ -380,21 +398,31 @@ class UltimateBulkEditor(ctk.CTk):
                     blurred_small = cv2.GaussianBlur(small, (51, 51), 0)
                     return cv2.resize(blurred_small, (safe_frame.shape[1], safe_frame.shape[0]))
                 
-                bg_clip = clip.resize(newsize=(target_w, target_h)).fl_image(blur_bg_frame)
+                bg_scale = max(target_w / clip.w, target_h / clip.h)
+                bg_resized = clip.resize(bg_scale)
+                bg_cropped = bg_resized.fx(vfx.crop, x_center=bg_resized.w/2, y_center=bg_resized.h/2, width=target_w, height=target_h)
+                bg_clip = bg_cropped.fl_image(blur_bg_frame)
             else:
                 colors = {"Black": (0,0,0), "White": (255,255,255), "Dark Gray": (50,50,50)}
                 bg_clip = ColorClip(size=(target_w, target_h), color=colors.get(bg_type, (0,0,0)), duration=clip.duration)
 
             bg_clip = bg_clip.set_fps(original_fps)
 
+            target_is_landscape = target_w > target_h 
+            
             if bg_type == "Zoom to Fit (Fill Frame)":
                 box_w, box_h = inner_w, inner_h
                 scale = max(box_w / clip.w, box_h / clip.h)
                 resized_clip = clip.resize(scale)
                 main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=box_w, height=box_h)
             elif bg_type == "Half Fit (Blur Background)":
-                box_w = inner_w
-                box_h = self.make_even(inner_h * 0.60)
+                if target_is_landscape:
+                    box_w = self.make_even(inner_w * 0.60) 
+                    box_h = inner_h
+                else:
+                    box_w = inner_w
+                    box_h = self.make_even(inner_h * 0.60) 
+                    
                 scale = max(box_w / clip.w, box_h / clip.h)
                 resized_clip = clip.resize(scale)
                 main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=box_w, height=box_h)
@@ -403,6 +431,7 @@ class UltimateBulkEditor(ctk.CTk):
                 main_clip = clip.resize(scale)
 
             layers_to_composite = []
+            
             if params['anti_copy']:
                 base_white = ColorClip(size=(target_w, target_h), color=(255, 255, 255), duration=clip.duration)
                 base_white = base_white.set_fps(original_fps)
@@ -419,10 +448,21 @@ class UltimateBulkEditor(ctk.CTk):
             elif params['filter_val'] == "Black & White": final_clip = final_clip.fx(vfx.blackwhite)
             elif params['filter_val'] == "Slight Zoom": final_clip = final_clip.fx(vfx.crop, x_center=final_clip.w/2, y_center=final_clip.h/2, width=final_clip.w*0.9, height=final_clip.h*0.9).resize(width=final_clip.w)
 
+            top_layers = [final_clip]
+
             if params['anti_copy']:
                 top_invisible_layer = ColorClip(size=(target_w, target_h), color=(255, 255, 255), duration=final_clip.duration).set_opacity(0.01)
                 top_invisible_layer = top_invisible_layer.set_fps(original_fps)
-                final_clip = CompositeVideoClip([final_clip, top_invisible_layer])
+                top_layers.append(top_invisible_layer)
+                
+            if params['film_grain']:
+                noise_frame = np.random.randint(0, 256, (target_h, target_w, 3), dtype=np.uint8)
+                grain_clip = ImageClip(noise_frame).set_duration(final_clip.duration).set_opacity(0.015)
+                grain_clip = grain_clip.set_fps(original_fps)
+                top_layers.append(grain_clip)
+                
+            if len(top_layers) > 1:
+                final_clip = CompositeVideoClip(top_layers)
 
             if final_clip.audio is not None:
                 audio_layers = [final_clip.audio]
@@ -489,8 +529,10 @@ class UltimateBulkEditor(ctk.CTk):
                 
             final_clip = final_clip.fl(add_4sided_progress)
 
+            # --- YAHAN SE FUNCTION GAYAB HUA THA, AB WAPIS AA GAYA HAI ---
             def ui_update_callback(fname, progress):
                 self.after(0, self.update_ui_bar, fname, progress)
+            # -----------------------------------------------------------
 
             custom_logger = LiveVideoLogger(filename, ui_update_callback)
 
@@ -498,11 +540,15 @@ class UltimateBulkEditor(ctk.CTk):
             if params['engine'] == "GPU (Nvidia Fast)":
                 selected_codec = "h264_nvenc" 
 
+            safe_temp_audio = os.path.join(tempfile.gettempdir(), f"audio_{uuid.uuid4().hex}.m4a")
+
             final_clip.write_videofile(
                 output_path, 
                 fps=original_fps,   
                 codec=selected_codec, 
                 audio_codec="aac", 
+                temp_audiofile=safe_temp_audio, 
+                remove_temp=True,
                 bitrate="4000k",      
                 preset="ultrafast",   
                 threads=4,          
@@ -514,6 +560,8 @@ class UltimateBulkEditor(ctk.CTk):
             if params['anti_copy']: 
                 base_white.close()
                 top_invisible_layer.close()
+            if params['film_grain']:
+                grain_clip.close()
             if new_audio_clip: new_audio_clip.close()
             
             self.after(0, self.complete_ui_bar, filename, True)
@@ -551,7 +599,6 @@ class UltimateBulkEditor(ctk.CTk):
     def run_batch(self):
         total_videos = len(self.input_files) 
         
-        # --- FIXED RGB COLOR MAP ---
         color_map = {
             "Red": (255, 0, 0), "Green": (0, 255, 0), "Blue": (0, 0, 255),
             "Yellow": (255, 255, 0), "Cyan": (0, 255, 255), 
@@ -568,7 +615,9 @@ class UltimateBulkEditor(ctk.CTk):
             'mask_noise': self.mask_noise_var.get(),
             'reverb': self.reverb_var.get(),
             'engine': self.engine_menu.get(), 
-            'border_size': 5 # <-- Yahan 6 se 5 Pixel kar diya gaya hai
+            'auto_trim': self.auto_trim_var.get(),
+            'film_grain': self.film_grain_var.get(), 
+            'border_size': 5 
         }
         
         max_workers = int(self.batch_menu.get())
