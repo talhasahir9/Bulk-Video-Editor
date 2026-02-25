@@ -3,8 +3,10 @@ import sys
 import threading
 import tempfile
 import traceback
+import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog
+from PIL import Image, ImageTk
 import numpy as np
 
 # --- WINDOWED MODE CRASH FIX ---
@@ -45,13 +47,14 @@ class LiveVideoLogger(ProgressBarLogger):
 class UltimateBulkEditor(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Sahir's Ultimate Bulk Editor (Ninja AI)")
-        self.geometry("820x820") 
-        self.minsize(720, 750)   
+        self.title("Sahir's Ultimate Bulk Editor (Pro Mode)")
+        self.geometry("820x850") 
+        self.minsize(720, 780)   
         
         self.input_files = [] 
         self.output_folder = ""
         self.active_bars = {} 
+        self.custom_blur_boxes = [] 
 
         # --- HEADER ---
         self.title_label = ctk.CTkLabel(self, text="🎬 Sahir's Pro Editor", font=("Helvetica", 26, "bold"))
@@ -70,7 +73,7 @@ class UltimateBulkEditor(ctk.CTk):
         self.folder_status_label = ctk.CTkLabel(self, text="Videos aur Output folder select karein...", text_color="gray")
         self.folder_status_label.pack(pady=5)
 
-        # --- DASHBOARD CONTROLS (SCROLLABLE) ---
+        # --- DASHBOARD CONTROLS ---
         self.frame_controls = ctk.CTkScrollableFrame(self)
         self.frame_controls.pack(pady=5, padx=20, fill="both", expand=True)
         
@@ -116,25 +119,30 @@ class UltimateBulkEditor(ctk.CTk):
         self.check_flip = ctk.CTkSwitch(self.frame_controls, text="Flip Horizontally", variable=self.flip_var)
         self.check_flip.grid(row=6, column=1, padx=15, pady=(15,5), sticky="w")
 
-        # --- NAYA OPTION: AI AUTO-TEXT HIDER ---
-        self.auto_text_var = ctk.BooleanVar(value=False)
-        self.check_auto_text = ctk.CTkSwitch(self.frame_controls, text="AI Auto-Hide Captions/Watermark", variable=self.auto_text_var)
-        self.check_auto_text.grid(row=7, column=1, padx=15, pady=(5,5), sticky="w")
+        # --- OPTIONAL MANUAL DRAW BLUR ---
+        self.blur_frame_label = ctk.CTkLabel(self.frame_controls, text="🚫 Optional: Custom Caption Hider", font=("Helvetica", 12, "bold"))
+        self.blur_frame_label.grid(row=7, column=1, padx=15, pady=(10,0), sticky="w")
+        
+        self.btn_draw_blur = ctk.CTkButton(self.frame_controls, text="✏️ Draw Custom Blur Areas", command=self.draw_custom_blur, fg_color="#ff9900", hover_color="#e68a00", text_color="black")
+        self.btn_draw_blur.grid(row=8, column=1, padx=15, pady=5, sticky="ew")
+        
+        self.blur_status_label = ctk.CTkLabel(self.frame_controls, text="Status: App will not blur any area", text_color="gray", font=("Helvetica", 10))
+        self.blur_status_label.grid(row=9, column=1, padx=15, pady=(0,5), sticky="w")
 
         self.anti_copy_var = ctk.BooleanVar(value=True) 
         self.check_anti_copy = ctk.CTkSwitch(self.frame_controls, text="Anti-Copyright Visuals", variable=self.anti_copy_var)
-        self.check_anti_copy.grid(row=8, column=1, padx=15, pady=(5,5), sticky="w")
+        self.check_anti_copy.grid(row=10, column=1, padx=15, pady=(5,5), sticky="w")
 
         self.audio_lbl = ctk.CTkLabel(self.frame_controls, text="🎧 Audio Hacker (Bypass):", font=("Helvetica", 14, "bold"))
-        self.audio_lbl.grid(row=9, column=0, padx=15, pady=(15,0), sticky="w")
+        self.audio_lbl.grid(row=8, column=0, padx=15, pady=(15,0), sticky="w")
 
         self.mask_noise_var = ctk.BooleanVar(value=True)
         self.check_mask = ctk.CTkSwitch(self.frame_controls, text="Add White Noise Mask (2%)", variable=self.mask_noise_var)
-        self.check_mask.grid(row=10, column=0, padx=15, pady=(5,5), sticky="w")
+        self.check_mask.grid(row=9, column=0, padx=15, pady=(5,5), sticky="w")
 
         self.reverb_var = ctk.BooleanVar(value=False)
         self.check_reverb = ctk.CTkSwitch(self.frame_controls, text="Add Reverb / Echo", variable=self.reverb_var)
-        self.check_reverb.grid(row=10, column=1, padx=15, pady=(5,5), sticky="w")
+        self.check_reverb.grid(row=10, column=0, padx=15, pady=(5,5), sticky="w")
 
         self.clean_audio_var = ctk.BooleanVar(value=False)
         self.check_audio = ctk.CTkSwitch(self.frame_controls, text="Clean Audio (Noise Reducer)", variable=self.clean_audio_var)
@@ -160,9 +168,117 @@ class UltimateBulkEditor(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.frame_action, text="Ready to start!", font=("Helvetica", 14), text_color="gray", anchor="w")
         self.status_label.pack(side="left", fill="x", expand=True)
 
-        # --- SCROLLABLE PROGRESS ---
         self.progress_frame = ctk.CTkScrollableFrame(self, height=130)
         self.progress_frame.pack(fill="x", padx=20, pady=(0, 20))
+
+    def draw_custom_blur(self):
+        if not self.input_files:
+            self.blur_status_label.configure(text="❌ Pehle 'Select Videos' par click karein!", text_color="red")
+            return
+            
+        try:
+            self.blur_status_label.configure(text="Opening Canvas...", text_color="yellow")
+            self.update()
+            
+            self.withdraw()
+            
+            first_video = self.input_files[0]
+            clip = VideoFileClip(first_video)
+            t = min(3.0, clip.duration / 2) 
+            frame_rgb = clip.get_frame(t) 
+            clip.close()
+            
+            orig_h, orig_w = frame_rgb.shape[:2]
+            display_h = 600 
+            scale = display_h / float(orig_h)
+            display_w = int(orig_w * scale)
+            
+            display_frame = cv2.resize(frame_rgb, (display_w, display_h))
+            img_pil = Image.fromarray(display_frame)
+            
+            self.draw_win = ctk.CTkToplevel(self)
+            self.draw_win.title("Sahir's Editor - Draw Blur Areas")
+            self.draw_win.geometry(f"{display_w}x{display_h + 80}")
+            self.draw_win.attributes("-topmost", True)
+            
+            def on_cancel():
+                self.draw_win.destroy()
+                self.deiconify()
+                self.blur_status_label.configure(text="Status: Drawing cancelled", text_color="gray")
+                
+            self.draw_win.protocol("WM_DELETE_WINDOW", on_cancel)
+            
+            lbl_inst = ctk.CTkLabel(self.draw_win, text="Mouse se text par box draw karein. Multiple boxes allowed hain!", font=("Helvetica", 12, "bold"))
+            lbl_inst.pack(pady=5)
+
+            self.canvas = tk.Canvas(self.draw_win, width=display_w, height=display_h, cursor="cross", highlightthickness=0)
+            self.canvas.pack()
+
+            self.photo = ImageTk.PhotoImage(image=img_pil)
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
+
+            self.rects = [] 
+            self.temp_rect = None
+            self.start_x = None
+            self.start_y = None
+
+            def on_button_press(event):
+                self.start_x = event.x
+                self.start_y = event.y
+                self.temp_rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline='#ffcc00', width=3)
+
+            def on_move_press(event):
+                cur_x, cur_y = event.x, event.y
+                self.canvas.coords(self.temp_rect, self.start_x, self.start_y, cur_x, cur_y)
+
+            def on_button_release(event):
+                end_x, end_y = event.x, event.y
+                x1, x2 = min(self.start_x, end_x), max(self.start_x, end_x)
+                y1, y2 = min(self.start_y, end_y), max(self.start_y, end_y)
+                w, h = x2 - x1, y2 - y1
+                
+                if w > 10 and h > 10:
+                    self.rects.append((x1, y1, w, h))
+                else:
+                    self.canvas.delete(self.temp_rect) 
+
+            self.canvas.bind("<ButtonPress-1>", on_button_press)
+            self.canvas.bind("<B1-Motion>", on_move_press)
+            self.canvas.bind("<ButtonRelease-1>", on_button_release)
+
+            def save_and_close():
+                real_boxes = []
+                for (x, y, w, h) in self.rects:
+                    real_boxes.append((int(x/scale), int(y/scale), int(w/scale), int(h/scale)))
+                
+                if real_boxes:
+                    self.custom_blur_boxes = real_boxes
+                    self.blur_status_label.configure(text=f"✅ {len(real_boxes)} Custom Areas Applied!", text_color="#28a745")
+                else:
+                    self.custom_blur_boxes = []
+                    self.blur_status_label.configure(text="Status: No areas selected", text_color="gray")
+                    
+                self.draw_win.destroy()
+                self.deiconify() 
+
+            def clear_boxes():
+                for item in self.canvas.find_all():
+                    if self.canvas.type(item) == "rectangle":
+                        self.canvas.delete(item)
+                self.rects.clear()
+
+            btn_frame = ctk.CTkFrame(self.draw_win, fg_color="transparent")
+            btn_frame.pack(fill="x", pady=5, padx=10)
+            
+            btn_save = ctk.CTkButton(btn_frame, text="✅ Save & Close", command=save_and_close, fg_color="#28a745", hover_color="#218838")
+            btn_save.pack(side="left", padx=5, expand=True)
+            
+            btn_clear = ctk.CTkButton(btn_frame, text="🗑️ Clear All Boxes", command=clear_boxes, fg_color="#dc3545", hover_color="#c82333")
+            btn_clear.pack(side="right", padx=5, expand=True)
+            
+        except Exception as e:
+            self.deiconify() 
+            self.blur_status_label.configure(text=f"❌ Error: {str(e)[:30]}", text_color="red")
 
     def create_ui_bar(self, filename):
         frame = ctk.CTkFrame(self.progress_frame, fg_color="transparent")
@@ -197,6 +313,8 @@ class UltimateBulkEditor(ctk.CTk):
         if files:
             self.input_files = list(files) 
             self.folder_status_label.configure(text=f"Selected {len(self.input_files)} videos | Output: {os.path.basename(self.output_folder) if self.output_folder else 'Not Selected'}")
+            self.custom_blur_boxes = []
+            self.blur_status_label.configure(text="Status: App will not blur any area", text_color="gray")
 
     def select_output(self):
         self.output_folder = filedialog.askdirectory(title="Select Output Folder")
@@ -215,45 +333,6 @@ class UltimateBulkEditor(ctk.CTk):
     def make_even(self, num):
         return int(num) if int(num) % 2 == 0 else int(num) + 1
 
-    # --- THE NINJA HACK: OpenCV Text Box Locator ---
-    def detect_text_areas(self, clip):
-        boxes = []
-        try:
-            times_to_scan = [clip.duration * 0.3, clip.duration * 0.7] # 30% aur 70% duration par check karega
-            for t in times_to_scan:
-                frame = clip.get_frame(t)
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                h, w = gray.shape
-                
-                # Morphological Math to find text blocks
-                rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (20, 7))
-                grad = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, rectKernel)
-                _, bw = cv2.threshold(grad, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-                connected = cv2.morphologyEx(bw, cv2.MORPH_CLOSE, rectKernel)
-                contours, _ = cv2.findContours(connected, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                
-                for c in contours:
-                    bx, by, bw_w, bw_h = cv2.boundingRect(c)
-                    # Agar box lamba hai aur text jaisa lag raha hai
-                    if bw_w > 50 and bw_h > 15 and bw_w > bw_h:
-                        # Sirf screen ke Top 20% aur Bottom 30% ko check karo taake face blur na ho
-                        if by < h * 0.20 or by > h * 0.70:
-                            boxes.append((bx, by, bw_w, bw_h))
-            
-            # Combine duplicate boxes
-            merged_boxes = []
-            for b in boxes:
-                covered = False
-                for mb in merged_boxes:
-                    if abs(b[0]-mb[0]) < 50 and abs(b[1]-mb[1]) < 50:
-                        covered = True
-                        break
-                if not covered:
-                    merged_boxes.append(b)
-            return merged_boxes
-        except:
-            return []
-
     def process_single_video(self, input_path, filename, params): 
         temp_wav_path = None
         clean_wav_path = None
@@ -266,6 +345,25 @@ class UltimateBulkEditor(ctk.CTk):
             
             clip = VideoFileClip(input_path)
             original_fps = clip.fps if clip.fps else 30.0
+
+            if len(self.custom_blur_boxes) > 0:
+                def apply_user_drawn_blur(frame):
+                    safe_frame = frame[:,:,:3].copy() if frame.shape[2] == 4 else frame.copy()
+                    h, w, _ = safe_frame.shape
+                    
+                    for (bx, by, bw, bh) in self.custom_blur_boxes:
+                        y1 = max(0, by)
+                        y2 = min(h, by + bh)
+                        x1 = max(0, bx)
+                        x2 = min(w, bx + bw)
+                        
+                        roi = safe_frame[y1:y2, x1:x2]
+                        if roi.size > 0:
+                            safe_frame[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (75, 75), 0)
+                            
+                    return safe_frame
+                    
+                clip = clip.fl_image(apply_user_drawn_blur)
             
             raw_target_w, raw_target_h = self.get_resolution_dims(params['res_val'], params['ratio_val'], clip.w, clip.h)
             target_w = self.make_even(raw_target_w)
@@ -276,13 +374,13 @@ class UltimateBulkEditor(ctk.CTk):
             
             bg_type = params['bg_val']
             if bg_type in ["Blur Video", "Zoom to Fit (Fill Frame)", "Half Fit (Blur Background)"]:
-                def blur_frame(frame):
+                def blur_bg_frame(frame):
                     safe_frame = frame[:,:,:3] if frame.shape[2] == 4 else frame
                     small = cv2.resize(safe_frame, (0,0), fx=0.5, fy=0.5)
                     blurred_small = cv2.GaussianBlur(small, (51, 51), 0)
                     return cv2.resize(blurred_small, (safe_frame.shape[1], safe_frame.shape[0]))
                 
-                bg_clip = clip.resize(newsize=(target_w, target_h)).fl_image(blur_frame)
+                bg_clip = clip.resize(newsize=(target_w, target_h)).fl_image(blur_bg_frame)
             else:
                 colors = {"Black": (0,0,0), "White": (255,255,255), "Dark Gray": (50,50,50)}
                 bg_clip = ColorClip(size=(target_w, target_h), color=colors.get(bg_type, (0,0,0)), duration=clip.duration)
@@ -303,27 +401,6 @@ class UltimateBulkEditor(ctk.CTk):
             else:
                 scale = min(inner_w / clip.w, inner_h / clip.h)
                 main_clip = clip.resize(scale)
-
-            # --- SMART AI CAPTION HIDER APLY KAREIN ---
-            if params['auto_text']:
-                text_boxes = self.detect_text_areas(main_clip)
-                if text_boxes:
-                    def hide_text(frame):
-                        safe_frame = frame[:,:,:3].copy() if frame.shape[2] == 4 else frame.copy()
-                        for (x, y, w, h) in text_boxes:
-                            pad = 15 # Caption se thora bahar tak blur karega
-                            x1 = max(0, x - pad)
-                            y1 = max(0, y - pad)
-                            x2 = min(safe_frame.shape[1], x + w + pad)
-                            y2 = min(safe_frame.shape[0], y + h + pad)
-                            
-                            roi = safe_frame[y1:y2, x1:x2]
-                            if roi.size > 0:
-                                blurred_roi = cv2.GaussianBlur(roi, (51, 51), 0)
-                                safe_frame[y1:y2, x1:x2] = blurred_roi
-                        return safe_frame
-                    main_clip = main_clip.fl_image(hide_text)
-            # -------------------------------------------
 
             layers_to_composite = []
             if params['anti_copy']:
@@ -474,9 +551,10 @@ class UltimateBulkEditor(ctk.CTk):
     def run_batch(self):
         total_videos = len(self.input_files) 
         
+        # --- FIXED RGB COLOR MAP ---
         color_map = {
-            "Red": (0, 0, 255), "Green": (0, 255, 0), "Blue": (255, 0, 0),
-            "Yellow": (0, 255, 255), "Cyan": (255, 255, 0), 
+            "Red": (255, 0, 0), "Green": (0, 255, 0), "Blue": (0, 0, 255),
+            "Yellow": (255, 255, 0), "Cyan": (0, 255, 255), 
             "Magenta": (255, 0, 255), "White": (255, 255, 255)
         }
         
@@ -484,14 +562,13 @@ class UltimateBulkEditor(ctk.CTk):
             'do_flip': self.flip_var.get(), 'speed_val': self.slider_speed.get(),
             'ratio_val': self.ratio_menu.get(), 'bg_val': self.bg_menu.get(),
             'res_val': self.res_menu.get(), 'filter_val': self.filter_menu.get(),
-            'prog_color': color_map.get(self.color_menu.get(), (0, 0, 255)),
+            'prog_color': color_map.get(self.color_menu.get(), (255, 0, 0)),
             'clean_audio': self.clean_audio_var.get(),
             'anti_copy': self.anti_copy_var.get(), 
-            'auto_text': self.auto_text_var.get(), # <-- Ninja AI Hider On/Off
             'mask_noise': self.mask_noise_var.get(),
             'reverb': self.reverb_var.get(),
             'engine': self.engine_menu.get(), 
-            'border_size': 10
+            'border_size': 5 # <-- Yahan 6 se 5 Pixel kar diya gaya hai
         }
         
         max_workers = int(self.batch_menu.get())
