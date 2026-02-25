@@ -1,5 +1,6 @@
 import os
 import sys
+import time # <-- YEH NAYA IMPORT ADD KIYA HAI DELETE LOOP KE LIYE
 import threading
 import tempfile
 import traceback
@@ -9,6 +10,14 @@ from tkinter import filedialog
 from PIL import Image, ImageTk
 import numpy as np
 import uuid 
+
+# --- GOOGLE DRIVE OAUTH LIBRARIES ---
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+# ------------------------------------
 
 # --- WINDOWED MODE CRASH FIX ---
 if sys.stdout is None:
@@ -48,9 +57,9 @@ class LiveVideoLogger(ProgressBarLogger):
 class UltimateBulkEditor(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Sahir's Ultimate Bulk Editor (Level 100 Bypass)")
-        self.geometry("820x860") 
-        self.minsize(720, 800)   
+        self.title("Sahir's Ultimate Bulk Editor (Google Drive OAuth)")
+        self.geometry("820x920") 
+        self.minsize(720, 850)   
         
         self.input_files = [] 
         self.output_folder = ""
@@ -61,7 +70,7 @@ class UltimateBulkEditor(ctk.CTk):
         self.title_label = ctk.CTkLabel(self, text="🎬 Sahir's Pro Editor", font=("Helvetica", 26, "bold"))
         self.title_label.pack(pady=(15, 5))
 
-        # --- FOLDERS & FILES ---
+        # --- FOLDERS & DRIVE SETTINGS ---
         self.frame_folders = ctk.CTkFrame(self)
         self.frame_folders.pack(pady=5, padx=20, fill="x")
         
@@ -70,9 +79,14 @@ class UltimateBulkEditor(ctk.CTk):
         
         self.btn_output = ctk.CTkButton(self.frame_folders, text="📁 Select Output Folder", command=self.select_output)
         self.btn_output.pack(side="right", padx=10, pady=10, expand=True)
-        
-        self.folder_status_label = ctk.CTkLabel(self, text="Videos aur Output folder select karein...", text_color="gray")
-        self.folder_status_label.pack(pady=5)
+
+        self.folder_status_label = ctk.CTkLabel(self.frame_folders, text="Videos aur Output folder select karein...", text_color="gray")
+        self.folder_status_label.pack(side="bottom", pady=5)
+
+        # GOOGLE DRIVE FOLDER ID INPUT
+        self.drive_id_var = ctk.StringVar()
+        self.entry_drive = ctk.CTkEntry(self, textvariable=self.drive_id_var, placeholder_text="Paste Google Drive Folder ID Here (e.g. 1A2b3C4d5ExYz...)", width=400)
+        self.entry_drive.pack(pady=(5, 5), padx=20, fill="x")
 
         # --- DASHBOARD CONTROLS ---
         self.frame_controls = ctk.CTkScrollableFrame(self)
@@ -160,6 +174,11 @@ class UltimateBulkEditor(ctk.CTk):
         self.clean_audio_var = ctk.BooleanVar(value=False)
         self.check_audio = ctk.CTkSwitch(self.frame_controls, text="Clean Audio (Noise Reducer)", variable=self.clean_audio_var)
         self.check_audio.grid(row=12, column=0, padx=15, pady=(5,5), sticky="w")
+
+        # --- AUTO UPLOAD ---
+        self.upload_var = ctk.BooleanVar(value=False)
+        self.check_upload = ctk.CTkSwitch(self.frame_controls, text="☁️ Auto-Upload to G-Drive & Delete Local", variable=self.upload_var, progress_color="#28a745")
+        self.check_upload.grid(row=12, column=1, padx=15, pady=(5,5), sticky="w")
 
         # --- SPEED SLIDER ---
         self.speed_label = ctk.CTkLabel(self.frame_controls, text="Speed: 1.15x")
@@ -310,11 +329,14 @@ class UltimateBulkEditor(ctk.CTk):
             self.active_bars[filename]["bar"].set(progress)
             self.active_bars[filename]["label"].configure(text=f"{(filename[:20]+'..') if len(filename)>20 else filename} - {int(progress*100)}%")
 
-    def complete_ui_bar(self, filename, success, error_msg=""):
+    def complete_ui_bar(self, filename, success, error_msg="", is_uploaded=False):
         if filename in self.active_bars:
             if success:
                 self.active_bars[filename]["bar"].set(1.0)
-                self.active_bars[filename]["label"].configure(text=f"✅ {filename[:20]}", text_color="#28a745")
+                if is_uploaded:
+                    self.active_bars[filename]["label"].configure(text=f"☁️ Uploaded {filename[:10]}", text_color="#17a2b8")
+                else:
+                    self.active_bars[filename]["label"].configure(text=f"✅ {filename[:20]}", text_color="#28a745")
             else:
                 short_err = error_msg[:25] + "..." if len(error_msg) > 25 else error_msg
                 self.active_bars[filename]["label"].configure(text=f"❌ {short_err}", text_color="#dc3545")
@@ -391,6 +413,12 @@ class UltimateBulkEditor(ctk.CTk):
             inner_h = self.make_even(target_h - (2 * params['border_size']))
             
             bg_type = params['bg_val']
+            target_is_portrait = target_h > target_w
+            input_is_portrait = clip.h > clip.w
+            
+            if target_is_portrait and input_is_portrait:
+                bg_type = "Zoom to Fit (Fill Frame)"
+
             if bg_type in ["Blur Video", "Zoom to Fit (Fill Frame)", "Half Fit (Blur Background)"]:
                 def blur_bg_frame(frame):
                     safe_frame = frame[:,:,:3] if frame.shape[2] == 4 else frame
@@ -407,25 +435,30 @@ class UltimateBulkEditor(ctk.CTk):
                 bg_clip = ColorClip(size=(target_w, target_h), color=colors.get(bg_type, (0,0,0)), duration=clip.duration)
 
             bg_clip = bg_clip.set_fps(original_fps)
-
-            target_is_landscape = target_w > target_h 
             
             if bg_type == "Zoom to Fit (Fill Frame)":
-                box_w, box_h = inner_w, inner_h
-                scale = max(box_w / clip.w, box_h / clip.h)
+                scale = max(inner_w / clip.w, inner_h / clip.h)
                 resized_clip = clip.resize(scale)
-                main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=box_w, height=box_h)
+                main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=inner_w, height=inner_h)
+            
             elif bg_type == "Half Fit (Blur Background)":
-                if target_is_landscape:
-                    box_w = self.make_even(inner_w * 0.60) 
-                    box_h = inner_h
-                else:
+                if target_is_portrait: 
                     box_w = inner_w
-                    box_h = self.make_even(inner_h * 0.60) 
-                    
-                scale = max(box_w / clip.w, box_h / clip.h)
-                resized_clip = clip.resize(scale)
-                main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=box_w, height=box_h)
+                    box_h = self.make_even(inner_h * 0.60)
+                    scale = max(box_w / clip.w, box_h / clip.h)
+                    resized_clip = clip.resize(scale)
+                    main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=box_w, height=box_h)
+                else: 
+                    if input_is_portrait: 
+                        box_w = self.make_even(inner_w * 0.60)
+                        box_h = inner_h
+                        scale = max(box_w / clip.w, box_h / clip.h)
+                        resized_clip = clip.resize(scale)
+                        main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=box_w, height=box_h)
+                    else: 
+                        scale = max(inner_w / clip.w, inner_h / clip.h)
+                        resized_clip = clip.resize(scale)
+                        main_clip = resized_clip.fx(vfx.crop, x_center=resized_clip.w/2, y_center=resized_clip.h/2, width=inner_w, height=inner_h)
             else:
                 scale = min(inner_w / clip.w, inner_h / clip.h)
                 main_clip = clip.resize(scale)
@@ -529,10 +562,8 @@ class UltimateBulkEditor(ctk.CTk):
                 
             final_clip = final_clip.fl(add_4sided_progress)
 
-            # --- YAHAN SE FUNCTION GAYAB HUA THA, AB WAPIS AA GAYA HAI ---
             def ui_update_callback(fname, progress):
-                self.after(0, self.update_ui_bar, fname, progress)
-            # -----------------------------------------------------------
+                self.after(0, self.update_ui_bar, fname, progress * 0.95)
 
             custom_logger = LiveVideoLogger(filename, ui_update_callback)
 
@@ -563,8 +594,60 @@ class UltimateBulkEditor(ctk.CTk):
             if params['film_grain']:
                 grain_clip.close()
             if new_audio_clip: new_audio_clip.close()
-            
-            self.after(0, self.complete_ui_bar, filename, True)
+
+            # =========================================================
+            # OFFICIAL GOOGLE DRIVE OAUTH UPLOAD & ROBUST DELETE
+            # =========================================================
+            is_uploaded = False
+            if params['auto_upload']:
+                try:
+                    self.after(0, lambda: self.active_bars[filename]["label"].configure(text=f"☁️ Uploading...", text_color="#17a2b8"))
+                    
+                    SCOPES = ['https://www.googleapis.com/auth/drive.file']
+                    creds = None
+                    
+                    if os.path.exists('token.json'):
+                        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+                        
+                    if not creds or not creds.valid:
+                        if creds and creds.expired and creds.refresh_token:
+                            creds.refresh(Request())
+                        else:
+                            if not os.path.exists('credentials.json'):
+                                raise Exception("credentials.json file nahi mili! Pehli dafa login ke liye yeh zaroori hai.")
+                            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+                            creds = flow.run_local_server(port=0)
+                            
+                        with open('token.json', 'w') as token:
+                            token.write(creds.to_json())
+
+                    service = build('drive', 'v3', credentials=creds)
+
+                    file_metadata = {
+                        'name': f"edited_{filename}",
+                        'parents': [params['drive_id']]
+                    }
+                    media = MediaFileUpload(output_path, resumable=True)
+                    service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+                    
+                    # Agar yahan tak aa gaya, matlab Google ne video qabool kar li hai!
+                    is_uploaded = True
+                    
+                    # File delete kar do taake storage full na ho (Windows Fix ke sath)
+                    del media # File ka connection toar diya
+                    
+                    for _ in range(5):
+                        try:
+                            os.remove(output_path)
+                            break # Delete successful
+                        except PermissionError:
+                            time.sleep(1) # Agar Windows rokay toh 1 sec wait karke wapis jao
+
+                except Exception as e:
+                    raise Exception(f"Upload Fail: {str(e)[:30]}")
+            # =========================================================
+
+            self.after(0, self.complete_ui_bar, filename, True, "", is_uploaded)
             return True, filename
             
         except Exception as e:
@@ -590,6 +673,11 @@ class UltimateBulkEditor(ctk.CTk):
         if not self.input_files or not self.output_folder:
             self.status_label.configure(text="⚠️ Pehle Videos & Output Folder select karein!", text_color="#ffcc00")
             return
+            
+        if self.upload_var.get() and len(self.drive_id_var.get()) < 10:
+            self.status_label.configure(text="⚠️ Auto-Upload ke liye Drive Folder ID zaroori hai!", text_color="red")
+            return
+
         self.btn_start.configure(state="disabled")
         for widget in self.progress_frame.winfo_children():
             widget.destroy()
@@ -617,7 +705,9 @@ class UltimateBulkEditor(ctk.CTk):
             'engine': self.engine_menu.get(), 
             'auto_trim': self.auto_trim_var.get(),
             'film_grain': self.film_grain_var.get(), 
-            'border_size': 5 
+            'border_size': 5,
+            'auto_upload': self.upload_var.get(),
+            'drive_id': self.drive_id_var.get().strip()
         }
         
         max_workers = int(self.batch_menu.get())
