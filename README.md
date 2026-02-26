@@ -23,4 +23,4 @@ Make sure you have Python installed on your system. Then, install the required l
 Run the following command in your terminal or command prompt:
 
 ```bash
-pip install customtkinter moviepy==1.0.3 opencv-python numpy noisereduce scipy
+pip install customtkinter Pillow numpy moviepy opencv-python noisereduce scipy google-api-python-client google-auth-httplib2 google-auth-oauthlib
