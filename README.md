@@ -24,3 +24,6 @@ Run the following command in your terminal or command prompt:
 
 ```bash
 pip install customtkinter moviepy==1.0.3 opencv-python numpy noisereduce scipy google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+```bash
+pyinstaller --noconfirm --onefile --windowed --collect-all customtkinter --collect-all imageio_ffmpeg --copy-metadata imageio --hidden-import scipy --hidden-import noisereduce --hidden-import googleapiclient --hidden-import google.oauth2 --hidden-import google_auth_oauthlib uapp.py
